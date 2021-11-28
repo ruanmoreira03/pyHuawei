@@ -1,6 +1,6 @@
 """ Classe destinada a facilitar a implementação de consultas a informações
     em Roteadores Huawei (Ne20/Ne40)
-    Requesito: Paramiko"""
+    Requesito: Paramiko, easysnmp"""
 
 import paramiko, time, datetime, re
 from easysnmp import Session
@@ -13,8 +13,8 @@ class Pyhuawei:
         self._sshuser = sshuser
         self._sshpass = sshpass
         self._community = community
-        self._user = 'Null'
-        self._user_id = 'Null'
+        self._user = None
+        self._user_id = None
 
     def open_ssh(self, command):
         cliente = paramiko.SSHClient()
@@ -24,9 +24,16 @@ class Pyhuawei:
 
         return stdout, cliente
 
+
     def get_snmp(self, oid):
         snmp = Session(hostname=self._ip, community=self._community, version=2)
         return snmp.get(oid).value
+
+
+    def walk_snmp(self, oid):
+        snmp = Session(hostname=self._ip, community=self._community, version=2)
+        return snmp.walk(oid)
+
 
     def export_config(self):
         temp, cliente = self.open_ssh('screen-length 0 temporary\ndis cu')
@@ -36,6 +43,7 @@ class Pyhuawei:
             time.sleep(0.01)
         cliente.close()
         config.close()
+
 
     def user(self, user):
         temp, cliente = self.open_ssh('dis access-user username '+user+' | include (^\s.[0-9])')
@@ -48,10 +56,11 @@ class Pyhuawei:
             self._user = user
             self._user_id = id
             return id
-        except:
-            self._user = ''
-            self._user_id = ''
+        except Exception as E:
+            self._user = None
+            self._user_id = None
             return False
+
 
     def user_online(self, user):
         self._update_(user)
@@ -62,13 +71,14 @@ class Pyhuawei:
             self._user_id = ''
             return False
 
+
     def user_session(self, user):
         self._update_(user)
         try:
             user_session = self.get_snmp('1.3.6.1.4.1.2011.5.2.1.16.1.18.'+self._user_id)
             user_session = str(datetime.timedelta(seconds=int(user_session)))
             return user_session
-        except:
+        except Exception as E:
             return False
 
 
@@ -82,16 +92,18 @@ class Pyhuawei:
                 mac = user_mac.strip()
                 mac = mac.replace(" ", ":")
             return mac
-        except:
-                return 'Erro: usuario pode estar offline'
+        except Exception as E:
+                return f'{E} Erro: usuario pode estar offline'
+
 
     def user_ip(self, user):
         self._update_(user)
         try:
             user_ip = self.get_snmp('iso.3.6.1.4.1.2011.5.2.1.15.1.15.'+self._user_id)
             return user_ip
-        except:
-            return 'Erro: usuario pode estar offline'
+        except Exception as E:
+                return f'{E} Erro: usuario pode estar offline'
+
 
     def user_wanipv6(self, user):
         self._update_(user)
@@ -100,8 +112,9 @@ class Pyhuawei:
             ipv6 = snmp.get('1.3.6.1.4.1.2011.5.2.1.15.1.60.'+self._user_id).value
             ipv6 = self._convert_ipv6_(ipv6)
             return ipv6
-        except:
-            return 'Erro: usuario pode estar offline'
+        except Exception as E:
+                return f'{E} Erro: usuario pode estar offline'
+
 
     def user_lanipv6(self, user):
         self._update_(user)
@@ -111,8 +124,9 @@ class Pyhuawei:
             ipv6 = self._convert_ipv6_(ipv6)
             prefix = snmp.get('1.3.6.1.4.1.2011.5.2.1.15.1.62.'+self._user_id).value
             return ipv6 +'/'+str(prefix)
-        except:
-            return 'Erro: usuario pode estar offline'
+        except Exception as E:
+                return f'{E} Erro: usuario pode estar offline'
+
 
     def user_plano(self, user):
         self._update_(user)
@@ -120,16 +134,17 @@ class Pyhuawei:
             plano = self.get_snmp('iso.3.6.1.4.1.2011.5.2.1.15.1.45.'+self._user_id)
             plano = round(int(plano)/1024)
             return plano
-        except:
-            return 'Erro: usuario pode estar offline'
+        except Exception as E:
+                return f'{E} Erro: usuario pode estar offline'
+
 
     def user_qos(self, user):
         self._update_(user)
-        try:
-            plano = self.get_snmp('1.3.6.1.4.1.2011.5.2.1.15.1.56.'+self._user_id)
-            return plano
-        except:
-            return 'Erro: usuario pode estar offline'
+        plano = self.get_snmp('1.3.6.1.4.1.2011.5.2.1.15.1.56.'+self._user_id)
+        if plano == 'NOSUCHINSTANCE':
+            raise ValueError
+        return plano
+
 
     def user_realtimetraff(self, user):
         self._update_(user)
@@ -156,19 +171,35 @@ class Pyhuawei:
 
         return down, up
 
+
+    def cpu_usage(self, time_avg):
+        try:
+            if time_avg == 1:
+                return self.get_snmp('1.3.6.1.4.1.2011.6.3.4.1.3.1.3.0')
+            if time_avg == 5:
+                return self.get_snmp('1.3.6.1.4.1.2011.6.3.4.1.4.1.3.0')
+            else:
+                return self.get_snmp('1.3.6.1.4.1.2011.6.3.4.1.2.1.3.0')
+        except Exception as e:
+            return f'Error. \n {e}'
+
+
     @property
     def user_id(self):
         return self._user_id
+
 
     @property
     def total_ipv4 (self):
         total_ipv4 = self.get_snmp('1.3.6.1.4.1.2011.5.2.1.14.1.2.0')
         return total_ipv4
 
+
     @property
     def total_ipv6 (self):
         total_ipv6 = self.get_snmp('iso.3.6.1.4.1.2011.5.2.1.14.1.17.0')
         return total_ipv6
+
 
     @property
     def local_users (self):
@@ -180,12 +211,73 @@ class Pyhuawei:
         del user[(len(user)-2):len(user)]
         for item in range(len(user)):
             result.append(re.sub(pattern, "", user[item]))
-            #print(result)
         return result
+
+
+    @property
+    def ppp_interfaces(self):
+        tmp = self.interfaces
+        int = []
+        for item in tmp:
+            try:
+                qtd = self.get_snmp('1.3.6.1.4.1.2011.5.2.1.42.1.2.1.'+item[0])
+                if qtd != 'NOSUCHINSTANCE':
+                    int.append((item[2], qtd))
+            except:
+                pass
+        return int
+
+
+    @property
+    def interfaces(self):
+        int = []
+        tmp_desc  = self.walk_snmp('1.3.6.1.2.1.2.2.1.2')
+        for item in tmp_desc:
+            int.append((re.search(r'[0-9]*$', item.oid).group(),
+                        item.value,
+                        self._snmp_get_index_(item, '1.3.6.1.2.1.31.1.1.1.18.'),
+                        self._snmp_get_index_(item, '1.3.6.1.2.1.2.2.1.7.'), ## AdminStatus
+                        self._snmp_get_index_(item, '1.3.6.1.2.1.2.2.1.8.') ## OperationalStatus
+                        ))
+        return int
+
 
     @property
     def ip (self):
         return self._ip
+
+
+    @property
+    def sysname(self):
+        return self.get_snmp('1.3.6.1.2.1.1.5.0')
+
+
+    @property
+    def uptime(self):
+        time = self.get_snmp('1.3.6.1.2.1.1.3.0')
+        uptime = str(datetime.timedelta(seconds=int(time)/100))
+        return uptime
+
+
+    @property
+    def system_time(self):
+        return self.get_snmp('1.3.6.1.4.1.2011.5.25.31.6.6.0')
+
+
+    @property
+    def model(self):
+        return self.get_snmp('1.3.6.1.4.1.2011.5.25.31.6.5.0')
+
+
+    @property
+    def sys_mac(self):
+        return self.get_snmp('1.3.6.1.4.1.2011.5.25.31.6.7.0')
+
+
+    @property
+    def sysinfo(self):
+        return self.get_snmp('iso.3.6.1.2.1.1.1.0')
+
 
     def _convert_ipv6_(self, ipv6):
         mystr = ""
@@ -196,9 +288,11 @@ class Pyhuawei:
 
         return mystr
 
+
     def _update_(self, user):
-        if self._user_id == 'Null' or self._user != user:
+        if self._user_id == None or self._user != user:
             self.user(user)
+
 
     def _user_traff_(self, user):
         self._update_(user)
@@ -209,3 +303,12 @@ class Pyhuawei:
         except:
             return 'Erro: usuario pode estar offline'
 
+    def _snmp_get_index_(self, item, oid):
+        return self.get_snmp(oid+re.search(r'[0-9]*$', item.oid).group())
+
+    def __str__(self):
+        return f'{self.sysinfo}Sysname: {self.sysname}\nUptime: {self.uptime}\nMNGMT IP: {self.ip}\nSystem MAC: {self.sys_mac}\n'
+
+
+    def __eq__(self, obj):
+        return self.sys_mac == obj.sys_mac
