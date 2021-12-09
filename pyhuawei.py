@@ -220,9 +220,9 @@ class Pyhuawei:
         int = []
         for item in tmp:
             try:
-                qtd = self.get_snmp('1.3.6.1.4.1.2011.5.2.1.42.1.2.1.'+item[0])
+                qtd = self.get_snmp('1.3.6.1.4.1.2011.5.2.1.42.1.2.1.'+item['id'])
                 if qtd != 'NOSUCHINSTANCE':
-                    int.append((item[2], qtd))
+                    int.append((item['description'], qtd))
             except:
                 pass
         return int
@@ -233,12 +233,11 @@ class Pyhuawei:
         int = []
         tmp_desc  = self.walk_snmp('1.3.6.1.2.1.2.2.1.2')
         for item in tmp_desc:
-            int.append((re.search(r'[0-9]*$', item.oid).group(),
-                        item.value,
-                        self._snmp_get_index_(item, '1.3.6.1.2.1.31.1.1.1.18.'),
-                        self._snmp_get_index_(item, '1.3.6.1.2.1.2.2.1.7.'), ## AdminStatus
-                        self._snmp_get_index_(item, '1.3.6.1.2.1.2.2.1.8.') ## OperationalStatus
-                        ))
+            int.append({"id":           re.search(r'[0-9]*$', item.oid).group(),                 ##int ID
+                        "name":         item.value,                                              ##int name
+                        "description":  self._snmp_get_index_(item, '1.3.6.1.2.1.31.1.1.1.18.'), ##int desc
+                        "admin-status": self._snmp_get_index_(item, '1.3.6.1.2.1.2.2.1.7.'),     ## AdminStatus
+                        "oper-status":  self._snmp_get_index_(item, '1.3.6.1.2.1.2.2.1.8.')})    ## Oper Status
         return int
 
 
@@ -279,6 +278,36 @@ class Pyhuawei:
         return self.get_snmp('iso.3.6.1.2.1.1.1.0')
 
 
+    @property
+    def local_asn(self):
+        return self.get_snmp('1.3.6.1.2.1.15.2.0')
+
+
+    @property
+    def bgp_router_id(self):
+        return self.get_snmp('1.3.6.1.2.1.15.4.0')
+
+    @property
+    def bgp_peers(self):
+        peers = self.walk_snmp('1.3.6.1.2.1.15.3.1.7')
+        return [item.value for item in peers]
+
+
+    @property
+    def bgp_peers_info(self):
+        asn = []
+        for item in self.bgp_peers:
+            asn.append({"peer":          item,                                         #IP Remoto (index)
+                        "ip":            self.get_snmp('1.3.6.1.2.1.15.3.1.5.'+item),  #IP da nossa ponta
+                        "peer-as":       self.get_snmp('1.3.6.1.2.1.15.3.1.9.'+item),  #Remote AS Number
+                        "session-state": self.get_snmp('1.3.6.1.2.1.15.3.1.2.'+item),  #Estado da sessao
+                        "router-id":     self.get_snmp('1.3.6.1.2.1.15.3.1.1.'+item),  #Router ID remoto
+                        "session-time":  str(datetime.timedelta(seconds=int(self.get_snmp('1.3.6.1.2.1.15.3.1.16.'+item)))), #Tempo de sessao
+                        "total-routes":  self.get_snmp('1.3.6.1.4.1.2011.5.25.177.1.1.3.1.1.0.1.1.1.4.'+item), #numero de rotas
+                        "active-routes": self.get_snmp('1.3.6.1.4.1.2011.5.25.177.1.1.3.1.2.0.1.1.1.4.'+item)}) #numero de rotas ativas
+        return asn
+
+
     def _convert_ipv6_(self, ipv6):
         mystr = ""
         for b in ipv6:
@@ -303,11 +332,13 @@ class Pyhuawei:
         except:
             return 'Erro: usuario pode estar offline'
 
+
     def _snmp_get_index_(self, item, oid):
         return self.get_snmp(oid+re.search(r'[0-9]*$', item.oid).group())
 
+
     def __str__(self):
-        return f'{self.sysinfo}Sysname: {self.sysname}\nUptime: {self.uptime}\nMNGMT IP: {self.ip}\nSystem MAC: {self.sys_mac}\n'
+        return f'{self.sysinfo}Sysname: {self.sysname}\nUptime: {self.uptime}\nMNGMT IP: {self.ip}\nSystem MAC: {self.sys_mac}'
 
 
     def __eq__(self, obj):
